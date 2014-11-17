@@ -1,6 +1,6 @@
 Title: Pintos
 Ownership: Abigail Liskey, Brandon Wooten, Julianne Petrella
-Course/Project: Database Design & Application
+Course/Project: Operating Systems
 University/Institution: James Madison University
 Written in: C
 Created: 2013/08
