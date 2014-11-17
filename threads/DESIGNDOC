@@ -1,0 +1,367 @@
+                    +-----------------------+
+                    |         CS 450        |
+                    | PROJECT 4: SCHEDULING |
+                    |    DESIGN DOCUMENT    |
+                    +-----------------------+
+
+---- INSTRUCTIONS ----
+
+>> Complete the answers to the questions in a succinct, precise
+>> manner.  Copy this file into your pintos/src/threads directory
+>> and add it to your Hg repository.
+
+>> Recall that this document accounts for 50% of your grade for
+>> this project, so you should put considerable thought into your
+>> answers.  If your answer is vague (e.g., "We fix this problem by
+>> doing stuff."), your score WILL suffer.  In particular, your
+>> rationale answers MUST provide a specific alternative design
+>> along with a CLEAR explanation of why your approach is superior.
+>> For instance, if your approach employs a data structure with
+>> O(1) average overhead while another would require O(n) work,
+>> you should provide these details.  Finally, your writing should
+>> be well-organized (i.e., use proper grammar) and properly
+>> formatted to match the line lengths of the original documentation.
+				   
+---- GROUP ----
+
+>> Fill in the names and email addresses of your group members.
+
+Team name:  Our Group
+Members:    Liskey, Abigail
+	    Petrella, Julianne
+            Wooten, Branden
+
+---- PRELIMINARIES ----
+
+>> If you have any preliminary comments on your submission, notes for the
+>> TAs, or extra credit, please give them here.
+
+**Please see changeset number 29 "finished design doc" for our priority
+donation code. We only implemented the simplest case of donation and were
+able to pass test case priority-donate-one.
+**Our most recent changeset does not include priority donation code and should
+pass all required tests.
+
+>> Please cite any offline or online sources you consulted while
+>> preparing your submission, other than the JMU Pintos documentation,
+>> course text, lecture notes, and course staff.
+
+None.
+
+			     ALARM CLOCK
+			     ===========
+
+---- DATA STRUCTURES ----
+
+>> A1:  What data structure(s) and/or global variables do you use to
+>> keep track of sleeping threads?  Copy the declaration of each here,
+>> including a brief description of its purpose (25 words or less).
+>> Furthermore, explain how this data structure is used to eliminate
+>> busy waiting.
+
+In thread.c:
+static struct list sleep_list;
+
+In synch.c:
+struct thread *thread;
+
+We created a global static sleep list variable in thread.c to keep track of all
+of our sleeping threads. We add threads to this list in thread_sleep() and
+remove threads in thread_tick() if they are ready to be awakened.
+We added a struct thread variable to the semaphore_elem struct in synch.c to
+have a direct reference to the thread that is being used for the condition
+variable.
+Our sleep list was used to eliminate busy waiting.  Originally, timer_sleep
+was waiting for a certain numnber of ticks to pass because the thread needed
+to sleep but it was not relinquishing the CPU for use by other threads. With
+our sleep list, we were able to change this by simply adding the thread that
+needed to sleep onto our sleep list and then calling schedule to give the CPU
+over to another thread that was on the ready list.
+
+---- ALGORITHMS ----
+
+>> A2:  Briefly describe what happens when a thread makes a call
+>> to timer_sleep().  In particular, explain how your design reacts
+>> if a timer interrupt occurs during the time between when the
+>> thread calls timer_sleep() and when the scheduler is invoked.
+
+When a thread makes a call to timer_sleep(), the thread is added to the sleep
+list and then the CPU is given to another process by the schedule method.
+If a timer interrupt occurs during this time, interrupts are disabled so any
+threads that are done sleeping can be woken up and removed from the sleep list.
+Interrupts are then enabled again once all necessary threads are awoken.
+
+>> A3:  Interrupt handlers, especially the timer interrupt handler,
+>> must be very efficient.  How does your design minimize the amount
+>> of time spent in the timer interrupt handler?
+
+To minimize the amount of time spent in the timer interrupt handler, we only
+disable interrupts when absolutely necessary and we make sure to enable them as
+soon as possible. This way, we do not lose track of important things such as
+timer ticks and input events and we minimize latency.
+
+---- SYNCHRONIZATION ----
+
+>> A4:  Describe a race condition that can occur if multiple threads
+>> call timer_sleep() at the same time.  How do you avoid errors in
+>> this case?  Your answer should be specific, precisely naming the
+>> shared data structures involved and the synchronization techniques
+>> deployed to protect them.
+
+If multiple threads call timer_sleep() at the same time, multiple threads will
+be trying to access the sleep_list and add themselves to it at the same time.
+To avoid multiple threads accessing and being added to the sleep list at the
+same time, we make sure to disable interrupts before adding a thread to the
+sleep list in thread_sleep(), which is called by timer_sleep(). This
+synchronization technique will avoid errors because it enforces mutually
+exculsive access to the sleep list at all times.
+
+>> A5:  Describe a race condition that can occur if a timer interrupt
+>> occurs during a call to timer_sleep().  How does your solution
+>> avoid errors when this happens?
+
+If a timer interrupt occurs during a call to timer_sleep(), we could have a
+case where one thread is trying to access the sleep list to remove itself and
+be woken up, while the other thread is trying to access the sleep list to add
+itself to it. To prevent this race condition we disable interrupts whenever
+we access the sleep list, which would be when we add to it in thread_sleep()
+and when we remove from it in thead_tick(). This avoids errors by ensuring
+that the sleep list will not be changed by one thrad while another is trying to
+get access to it is well.
+
+---- RATIONALE ----
+
+>> A6:  Describe an alternative approach that could have been used to
+>> solve this problem.  Include specific information about the data
+>> structures, algorithms, and synchronization techniques that would
+>> have been required.  Explain why you chose to implement the design
+>> that you did.
+
+An alternative approach that could have been used to solve this problem would
+be to use locks. If we have a lock for the sleep_list, only one thread would be
+able to access and alter the list at a single point in time. Other threads
+would have to wait for the lock to be relinquished in order to have access to
+the sleep list. This prevents one thread from adding to the sleep list at the
+same time as thread_tick() loops through the list to awaken other threads.
+To implement this, we would still have our same list sleep_list and we would
+also have to create a global lock sleep_lock. A thread would have to try to
+acquire this lock whenever the sleep list needs to be accessed, such as in
+thread_tick() and in thread_sleep(). Then, the thread would have to release the
+lock immediately after it is done accessing and altering the list in those same
+places. 
+We chose to use disabling interrupts in our design because we feel as though
+the directions led us that way and disabling interrupts prevents the timer
+interrupt from interfering.
+
+			 PRIORITY SCHEDULING
+			 ===================
+
+---- DATA STRUCTURES ----
+
+>> B1:  What data structure(s) and/or global variables do you use to
+>> keep track of thread priorities?  Copy the declaration of each here,
+>> including a brief description of its purpose (25 words or less).
+>> Furthermore, explain how this data structure is used by the
+>> scheduler to select the correct thread.
+
+In thread.h:
+int64_t wake_up_tick;
+
+We added a wake_up_tick variable to the thread struct in thread.h to store the
+time or tick that a particular thread should be woken up at, which is its
+priority. Threads with smaller wake_up_tick numbers will be woken up before
+threads with larger wake_up_tick numbers because a smaller tick indicates an
+earlier time. 
+
+>> B2:  One of the problems with basic priority scheduling is that it
+>> can lead to priority inversion.  For instance, assume that a high
+>> priority thread (H) is waiting on a lock that a low priority
+>> thread (L) has.  This matter can be complicated further if there
+>> is a medium priority thread (M) also executing.  In that case,
+>> H is blocked (waiting on the lock), so M gets to execute.  This
+>> defeats the purpose of H having a higher priority!
+
+>> One solution to priority inversion is priority donation.  In that
+>> case, the high priority thread may temporarily raise the priority
+>> level of another thread (i.e., "donate" its high priority level)
+>> to get the lock sooner.  For instance, in the previous scenario,
+>> H could donate its priority to L, thereby giving L a higher
+>> priority level than M.  Consequently, L would get to execute until
+>> it releases the lock.  Once the lock is released, L's priority
+>> would return to its previous (low) level.
+
+>> Describe a data structure that could be used to implement priority
+>> donation.  Keep in mind that you must also keep track of the
+>> thread's original (base) priority level.
+
+To implement priority donation, we did not really add a complicated data
+structure. Instead, we added a few variables to the thread struct to keep
+track of the original base priority and the donated priority as shown below:
+
+In thread.h:
+int original_priority;              /* Priority before donation. */
+int donated_priority;               /* Donated priority. */
+
+In synch.c:
+void
+lock_acquire (struct lock *lock)
+{
+  bool success;
+
+  ASSERT (lock != NULL);
+  ASSERT (!intr_context ());
+  ASSERT (!lock_held_by_current_thread (lock));
+
+  success = lock_try_acquire (lock);
+  if (!success)
+    {
+      if (thread_current ()->priority > lock->holder->priority)
+        {
+          lock->holder->original_priority = lock->holder->priority;
+          lock->holder->donated_priority = thread_current ()->priority;
+          lock->holder->priority = lock->holder->donated_priority;
+        }
+      sema_down (&lock->semaphore);
+      lock->holder = thread_current ();
+    }
+}
+
+This probably was not the most efficient way to go about handling priority
+donation, however, it was simple and worked for priority-donate-one test case.
+
+---- ALGORITHMS ----
+
+>> B3:  Locks, semaphores, and condition variables all maintain a list
+>> of waiting threads.  How do you ensure that the highest priority
+>> waiting thread is scheduled first?
+
+To ensure that the highest priority waiting thread is scheduled first, we
+sorted the waiting lists to have the highest priority threads at the front
+of the list and the lowest priority threads at the end of the list. This
+allowed us to keep scheduling the same since the next_thread_to_run()
+method pops the next thread from the front of the ready list, which is now
+the thread that has the highest priority after we ordered them.
+
+>> B4:  Any thread scheduling mechanism must be efficient.  How do
+>> you minimize the amount of performance overhead when selecting the
+>> highest priority thread for scheduling?  Describe the overhead
+>> cost of your algorithm.  Make sure you address both the average
+>> and worst-case scenarios.
+
+To minimize the amount of performance overhead when selecting the highest
+priority thread for scheduling, we changed our ready list to adhere to a 
+certain order.  When inserting, we put higher priority threads at the front of
+the ready list and the lowest priorities at the end.  If two threads are being
+compared that have the same priority, we insert the new thread after the one
+that was already in the ready list.  This way we do not have to loop through
+the ready list to find the next thread that should be scheduled. We can simply
+pop the thread from the front of the ready list because that is the one that
+will always have the highest priority. However, inserting the threads onto the
+ready list in order does have some overhead because the thread being inserted
+must be compared to the other threads in the list until it finds one that has a
+lower priority.  On average, the new thread will be compared to about half of
+the threads in the ready list.  Worst-case scenario is when the new thread has
+the lowest priority out of all of the threads in the ready list and must be
+placed all the way at the end of the list.
+
+>> B5:  Returning to priority donation, describe an algorithm for
+>> lowering a thread's priority after releasing a lock.  For
+>> instance, assume that H and M have both donated priority to L.
+>> When L releases a lock, what should its priority become?  Does it
+>> matter if H and M were waiting on the same lock?  What if they
+>> were waiting on different locks?
+
+If H and M were waiting on the same lock it does not matter and L's priority
+will be reverted back to its original base priority that it had before donation
+occurred. If H and M were waiting on different locks then L's priority would
+depend on which lock it was releasing.  If it released the lock that H was
+waiting on then its new priority would be the one that M is donating.  If it
+released the lock that M was waiting on, then its new priority would be the one
+that H was donating.
+
+lock_release (struct lock *lock)
+{
+  ASSERT (lock != NULL);
+  ASSERT (lock_held_by_current_thread (lock));
+
+  lock->holder->priority = lock->holder->original_priority;
+  lock->holder = NULL;
+  sema_up (&lock->semaphore);
+}
+
+>> B6:  Consider the case of a nested priority donation.  That is,
+>> assume M acquires lock K1, then tries to acquire lock K2.  However,
+>> L has previous acquired K2.  As a result, M donates its priority
+>> to L.  Next, H arrives and requests K1.  Describe what would need
+>> to happen, and what happens when L releases K2.
+
+H would donate its priority to both M and L so they can finish their tasks
+faster and release the locks for H sooner.  When L releases the K2 lock its
+priority will be reverted back to its original priority that it had before
+the donation occurred.  The same will apply for M.
+
+---- RATIONALE ----
+
+>> B7:  Describe an alternative approach that could have been used to
+>> solve this problem.  Include specific information about the data
+>> structures, algorithms, and synchronization techniques that would
+>> have been required.  Explain why you chose to implement the design
+>> that you did.
+
+An alternative approach that could have been used to solve this problem would
+be to have a list in each thread struct that stores all of the donated priorites
+that the thread has received. This would help take care of nested donation,
+which we did not really think about handling when we simply add our two
+variables to the thread struct originally. We would add donated priorities to a
+threads donated priority list in the order that they occur. When the thread
+releases a lock, before reverting its priority back to the base priority, we
+could check the donation list to see if there are still other threads waiting
+on its locks. If there are, then we would give that thread its next donated
+priority from the front of its list.
+We implemented priority donation the way we did because we were simply thinking
+of the most basic forms of donation. Nested donation did not really occur to us
+and we did not really have the time to try it. We were only able to implement
+the beginnings of priority donation and pass the priority-donate-one test case.
+Therefore, we have included most of our code in this document for priority
+donation and will not have the code included in the code revision we submit.
+
+			   SURVEY QUESTIONS
+			   ================
+
+Answering these questions is optional, but it will help us improve the
+course in future semesters.  Feel free to tell us anything you
+want--these questions are just to spur your thoughts.  You may also
+choose to respond anonymously in the course evaluations at the end of
+the semester.
+
+>> In your opinion, was this assignment, or any one of the two problems
+>> in it, too easy or too hard?  Did it take too long or too little time?
+
+Although this project did not take nearly as much time as the previous ones, it
+was the most difficult to figure out on your own. The directions tell you what
+your end product should do but do not provide steps on how to get there, which
+forced more frequent office hour visits. It also made things harder since this
+project was particularly diffult to test and debug.
+
+>> Did you find that working on a particular part of the assignment gave
+>> you greater insight into some aspect of OS design?
+
+Yes, we got greater insight into one way that scheduling can be done and all of
+its different parts.
+
+>> Is there some particular fact or hint we should give students in
+>> future semesters to help them solve the problems?  Conversely, did you
+>> find any of our guidance to be misleading?
+
+Perhaps some of the things discussed in office hours could be included in the
+directions from the beginning to allow for less time wasted waiting for office
+hour days.
+
+>> Do you have any suggestions for the TAs to more effectively assist
+>> students, either for future semesters or the remaining projects?
+
+None.
+
+>> Any other comments?
+
+None.
