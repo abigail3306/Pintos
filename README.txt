@@ -1,5 +1,4 @@
 Title: Pintos
-Ownership: Abigail Liskey, Brandon Wooten, Julianne Petrella
 Course/Project: Operating Systems
 University/Institution: James Madison University
 Written in: C, Assembly
